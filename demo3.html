@@ -1,0 +1,296 @@
+<html>
+
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no" />
+	<title>ArcGIS API在视图中渲染Three.js场景</title>
+	<style>
+		html,
+		body,
+		#viewDiv {
+			padding: 0;
+			margin: 0;
+			height: 100%;
+			width: 100%;
+		}
+	</style>
+
+	<link rel="stylesheet" href="https://js.arcgis.com/4.18/esri/css/main.css" />
+	<script src='https://js.arcgis.com/4.18/init.js'></script>
+	<script src='animate.js'></script>
+	<script src='./js/animateline.js'></script>
+	<!-- <script src='./js/jingtaiqiang.js'></script> -->
+	<script type="module">
+		import * as THREE from './three.js-master/build/three.module.js';
+		window.THREE = THREE;
+		import { OBJLoader } from './three.js-master/examples/jsm/loaders/OBJLoader.js';
+		import { GLTFLoader } from './three.js-master/examples/jsm/loaders/GLTFLoader.js';
+		import { MTLLoader } from './three.js-master/examples/jsm/loaders/MTLLoader.js';
+		import { jingtaiqiang, createLightMateria, laln2xy, randomPoints, addPoint, shootPoint, lizi, dir, allpl, rectLight } from './js/jingtaiqiang.js'
+
+		var a = [[113.40390783808608, 23.18276725171538], [113.40374307774756, 23.18235413106401], [113.40348080157042, 23.181956940448323], [113.40303823296958, 23.18111697163851], [113.40278072299746, 23.18071230615752], [113.40252282292161, 23.18027911706818], [113.40228864779029, 23.17983217195939], [113.40207834553443, 23.179442508886105], [113.40188199969224, 23.179056038271046], [113.40231380763392, 23.17888998005601], [113.40254181390911, 23.179269282019714], [113.40276799081505, 23.1797019235328], [113.40295599994796, 23.18010418633416], [113.40347788476585, 23.18094452066156], [113.40367833903993, 23.18133585356315], [113.40393032858708, 23.18181722211071], [113.40411313417914, 23.18217521128062], [113.40195330582172, 23.181463190520127], [113.40219894735388, 23.181008872824023], [113.40150100418414, 23.18006541069313]];
+		var b = ['dwd', 'hwcl', 'jg', 'nsh', 'pld', 'ry', 'sd', 'sp', 'wf', 'xf', 'yy'];
+		require([
+			'esri/Map',
+			'esri/views/SceneView',
+			'esri/views/3d/externalRenderers',
+			'esri/geometry/SpatialReference',
+			"esri/layers/TileLayer",
+			"esri/layers/IntegratedMeshLayer",
+			"esri/layers/GraphicsLayer",
+			"esri/layers/FeatureLayer",
+			"esri/Graphic",
+			"esri/Color",
+			"esri/geometry/support/webMercatorUtils"
+		], function (Map, SceneView, externalRenderers, SpatialReference, TileLayer, IntegratedMeshLayer, GraphicsLayer, FeatureLayer, Graphic, Color, webMercatorUtils) {
+			window.Color = Color;
+			window.externalRenderers = externalRenderers;
+			window.SpatialReference = SpatialReference;
+			window.webMercatorUtils = webMercatorUtils;
+
+			const map = new Map({
+				// basemap: 'topo' || 'topo-vector',
+				basemap: 'satellite'
+			});
+
+			const view = window.view = new SceneView({
+				container: 'viewDiv',
+				map: map,
+				center: [105, 29],
+				camera: {
+					tilt: 45,
+					position: [
+						113.40308204218098, // lon
+						23.175268743028578, // lat
+						500  // elevation in meters
+					]
+				}
+			});
+			// var layer3d = new IntegratedMeshLayer({
+			// 	url: "http://192.168.33.188/arcgis/rest/services/Hosted/gdsnyjstgzz/SceneServer",
+			// 	copyright: "jk",
+			// 	elevationInfo: {
+			// 		mode: "absolute-height",
+			// 		offset: -30.5
+			// 	},
+			// 	id: "3dLayer"
+			// });
+
+			// view.map.add(layer3d);
+
+			// view.on("click", function (event) {
+			// 	console.log(event.mapPoint.longitude + ', ' + event.mapPoint.latitude);
+			// });
+
+			const myRenderer = window.myRenderer = {
+				renderer: null, // three.js 渲染器
+				camera: null, // three.js 相机
+				scene: null, // three.js 中的场景
+				ambient: null, // three.js中的环境光
+				sun: null, // three.js中的平行光源，模拟太阳光
+				pointArray: null,
+				g2: null,
+				pointsMaterial: null,
+				p1: null,
+				p2: null,
+				pointList: null,
+				progress: 0,
+				lineMaterial: null,
+				num: 0,
+				moveArray: [],
+				originArray: null,
+
+				setup: function (context) {
+					this.renderer = new THREE.WebGLRenderer({
+						context: context.gl, // 可用于将渲染器附加到已有的渲染环境(RenderingContext)中
+						premultipliedAlpha: false, // renderer是否假设颜色有 premultiplied alpha. 默认为true
+					});
+					this.renderer.setPixelRatio(window.devicePixelRatio); // 设置设备像素比。通常用于避免HiDPI设备上绘图模糊
+					this.renderer.setViewport(0, 0, view.width, view.height); // 视口大小设置
+
+					// 防止Three.js清除ArcGIS JS API提供的缓冲区。
+					this.renderer.autoClearDepth = false; // 定义renderer是否清除深度缓存
+					this.renderer.autoClearStencil = false; // 定义renderer是否清除模板缓存
+					this.renderer.autoClearColor = false; // 定义renderer是否清除颜色缓存
+
+					// ArcGIS JS API渲染自定义离屏缓冲区，而不是默认的帧缓冲区。
+					// 我们必须将这段代码注入到three.js运行时中，以便绑定这些缓冲区而不是默认的缓冲区。
+					const originalSetRenderTarget = this.renderer.setRenderTarget.bind(
+						this.renderer
+					);
+					this.renderer.setRenderTarget = function (target) {
+						originalSetRenderTarget(target);
+						if (target == null) {
+							// 绑定外部渲染器应该渲染到的颜色和深度缓冲区
+							context.bindRenderTarget();
+						}
+					};
+
+					this.scene = new THREE.Scene(); // 场景
+					this.camera = window.camera = new THREE.PerspectiveCamera(); // 相机
+
+					// this.ambient = new THREE.AmbientLight(0xffffff, 0.5); // 环境光
+					// this.scene.add(this.ambient); // 把环境光添加到场景中
+					// this.sun = new THREE.DirectionalLight(0xffffff, 0.5); // 平行光（模拟太阳光）
+					// this.scene.add(this.sun); // 把太阳光添加到场景中
+
+					// 添加坐标轴辅助工具
+					const axesHelper = new THREE.AxesHelper(10000000);
+					this.scene.add(axesHelper);
+
+					// 创建点光源移动偏移量数组
+					// var c = new THREE.CatmullRomCurve3([
+					// 	new THREE.Vector3(0, 0, 0),
+					// 	new THREE.Vector3(1, 1, 0),
+					// 	new THREE.Vector3(2, 1, 0)
+					// ])
+					// this.moveArray = c.getPoints(30)
+					var offset = 5
+					this.moveArray.push(new THREE.Vector3(offset, 0, 0))
+					this.moveArray.push(new THREE.Vector3(-offset, 0, 0))
+					this.moveArray.push(new THREE.Vector3(0, offset, 0))
+					this.moveArray.push(new THREE.Vector3(0, -offset, 0))
+
+					// 动态画线
+					this.p1 = [113.40425058961416, 23.183776899141563, 1] // 起点t1
+					this.p2 = [113.40235142327226, 23.178518250864418, 1] // 终点t3
+					this.g2 = new THREE.Geometry()
+					// 随机生成100个附属点
+					// randomPoints(this.g2)
+					this.g2.vertices.push(new THREE.Vector3(0, 0, 0))
+					var mx = (this.p1[0] + this.p2[0]) / 2
+					var my = (this.p1[1] + this.p2[1]) / 2
+					var mz = 101
+					this.p3 = [mx, my, mz] // 中间最高点
+					var curve = new THREE.CatmullRomCurve3([
+						laln2xy(this.p1[0], this.p1[1], this.p1[2]),
+						laln2xy(this.p3[0], this.p3[1], this.p3[2]),
+						laln2xy(this.p2[0], this.p2[1], this.p2[2])
+					])
+					this.pointList = curve.getPoints(300)
+					this.pointsMaterial = new THREE.PointsMaterial({
+						color: 0xffffff,
+						size: 80,
+						transparent: true,
+						blending: THREE.AdditiveBlending,
+						map: createLightMateria()
+					})
+					this.lineMaterial = new THREE.LineBasicMaterial({
+						color: 0xff0000,
+						side: THREE.DoubleSide,
+						linewidth: 100
+					});
+
+
+					//https://developers.arcgis.com/javascript/latest/sample-code/layers-integratedmeshlayer/index.html
+					// 创建动态流动图
+					var geometry = { type: "polygon", spatialReference: view.spatialReference, rings: [[12624104.398836397, 2654258.3642417756, 1.4726909082382917], [12624126.299396912, 2654081.767968552, 1.4726909082382917], [12623892.305677146, 2653625.091825745, 1.4726909082382917], [12623809.284844572, 2653669.3379244413, 1.4726909082382917], [12624104.398836397, 2654258.3642417756, 1.4726909082382917]] }
+					var graphic = new Graphic({ geometry });
+					var type = 16
+					var p = [[113.40425058961416, 23.183776899141563], [113.40156750898448, 23.178890459252436], [113.40235142327226, 23.178518250864418], [113.4044734607594, 23.18231373309851], [113.40425058961416, 23.183776899141563]]
+					if (type < 16) {
+						window.sdsd = animateLine(
+							graphic,  //几何
+							8,        //半径
+							type,       //类型
+							{
+								scene: this.scene,
+								externalRenderers: externalRenderers,
+								speed: 0.5,
+								opacity: "./images/Textures/color2.png",
+								img: './images/Textures/color2.png',
+								AngleError: [-12, 32, -30, 30, -12],
+								lineRError: [0, 0, 0, 0, 0]
+							}
+						);
+					} else if (type === 16) {
+						window.sdsd = jingtaiqiang(
+							p,
+							{
+								scene: this.scene,
+								externalRenderers: externalRenderers,
+								img: './images/Textures/texture_2.png',
+							}
+						);
+					}
+					this.originArray = allpl
+					// var g = new THREE.CylinderGeometry( 5, 5, 20, 32 );
+					// var material = new THREE.MeshBasicMaterial( {color: 0xffff00} );
+					// var cylinder = new THREE.Mesh( g, material );
+					// this.scene.add( cylinder );
+					// console.log('cy', cylinder)
+				},
+				render: function (context) {
+					animateLine.render();
+
+					// 更新相机参数
+					const cam = context.camera;
+					this.camera.position.set(cam.eye[0], cam.eye[1], cam.eye[2]);
+					this.camera.up.set(cam.up[0], cam.up[1], cam.up[2]);
+					this.camera.lookAt(
+						new THREE.Vector3(cam.center[0], cam.center[1], cam.center[2])
+					);
+					// 投影矩阵可以直接复制
+					this.camera.projectionMatrix.fromArray(cam.projectionMatrix);
+
+					// 画线
+					if (this.progress >= 299) {
+						var allChildren = this.scene.children;
+						var lastObject = allChildren[allChildren.length - 1];
+						for (let i = allChildren.length - 1; i >= 0; i--) {
+							var object = allChildren[i]
+							if (object instanceof THREE.Line || object instanceof THREE.Points) {
+								this.scene.remove(object)
+							}
+						}
+						this.progress = 0
+						this.num = 0
+						while (lizi.length > 0) lizi.shift()
+						while (dir.length > 0) dir.shift()
+					} else {
+						this.progress++
+						// var lineSec = [this.pointList[this.progress - 1], this.pointList[this.progress]]
+						// var geo = new THREE.BufferGeometry().setFromPoints(lineSec)
+						// var line = new THREE.Line(geo, this.lineMaterial, THREE.LineSegments)
+						// this.scene.add(line)
+						// // 粒子特效
+						// var st = this.pointList[this.progress]
+						// var la = this.pointList[this.progress - 1]
+						// var d = new THREE.Vector3(la.x - st.x, la.y - st.y, la.z - st.z)
+						// var pa = new THREE.Points(this.g2, this.pointsMaterial)
+						// pa.position.set(st.x, st.y, st.z)
+						// shootPoint(st, d, this.scene, this.g2)
+						// if (this.num < 20) this.num++
+					}
+
+					// 呼吸灯效果
+					rectLight.intensity = (this.progress - 150) * (this.progress - 150) / 600 + 15
+
+					// //点光源移动，制造呼吸灯效果
+					// var moveindex = this.progress % 4
+					// var move = this.moveArray[moveindex]
+					// for (let i = 0; i < allpl.length; i++) {
+					// 	allpl[i].position.set(allpl[i].position.x + move.x, allpl[i].position.y + move.y, allpl[i].position.z + move.z)
+					// }
+
+
+					// 绘制场景
+					this.renderer.state.reset();
+					this.renderer.render(this.scene, this.camera);
+					// 请求重绘视图。
+					externalRenderers.requestRender(view);
+					// cleanup
+					context.resetWebGLState();
+				},
+			};
+			// 注册renderer
+			externalRenderers.add(view, myRenderer);
+		});
+	</script>
+</head>
+
+<body>
+	<div id="viewDiv"></div>
+</body>
+
+</html>
